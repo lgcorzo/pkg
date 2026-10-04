@@ -23,8 +23,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/minio/pkg/v3/policy/condition"
-	"github.com/minio/pkg/v3/wildcard"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/wildcard"
 )
 
 const (
