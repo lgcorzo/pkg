@@ -77,10 +77,10 @@ github.com/lestrrat-go/jwx/v2 v2.1.4 h1:uBCMmJX8oRZStmKuMMOFb0Yh9xmEMgNJLgjuKKt4
 github.com/lestrrat-go/jwx/v2 v2.1.4/go.mod h1:nWRbDFR1ALG2Z6GJbBXzfQaYyvn751KuuyySN2yR6is=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
-github.com/lgcorzo/minio-go/v7 v7.0.91 h1:zZ+r17/saUBCbIkoj6tJuO9E4+wS+FCWiepTMQ/J1qc=
-github.com/lgcorzo/minio-go/v7 v7.0.91/go.mod h1:LrkrSYE+SERz5+RrsCRPUotCcSvOotB26zZiWCg9Hz0=
-github.com/lgcorzo/mux v1.9.2 h1:j1wW6VGKDQ+/t0u1z5KRzXweVUD1snv35NlEJdgBXCo=
-github.com/lgcorzo/mux v1.9.2/go.mod h1:hB7TX0CrqbsVKQkqwz9ob1swJwPMZqEYaNYxDt5D7V4=
+github.com/lgcorzo/minio-go/v7 v7.0.91-lgcorzo.2 h1:q7nSkqr3Pro/CY7FogZD8Iwa4AvESfmUPhmPhGWRglE=
+github.com/lgcorzo/minio-go/v7 v7.0.91-lgcorzo.2/go.mod h1:/z9kHnRpsHUjrpZHs7QyR2YRPjub3HB2nmI9RO42tF8=
+github.com/lgcorzo/mux v1.9.2-lgcorzo.1 h1:zXqOiShdkJHrPzySOMa3H/xvHGNhs6mA/tGF4UkWBpU=
+github.com/lgcorzo/mux v1.9.2-lgcorzo.1/go.mod h1:hB7TX0CrqbsVKQkqwz9ob1swJwPMZqEYaNYxDt5D7V4=
 github.com/mattn/go-colorable v0.1.4/go.mod h1:U0ppj6V5qS13XJ6of8GYAs25YV2eR4EVcfRqFIhoBtE=
 github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=
 github.com/mattn/go-colorable v0.1.14/go.mod h1:6LmQG8QLFO4G5z1gPvYEzlUgJ2wF+stgPZH1UqBm1s8=

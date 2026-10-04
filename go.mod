@@ -10,8 +10,8 @@ require (
 	github.com/fatih/structs v1.1.0
 	github.com/go-ldap/ldap/v3 v3.4.10
 	github.com/lestrrat-go/jwx/v2 v2.1.4
-	github.com/lgcorzo/minio-go/v7 v7.0.91
-	github.com/lgcorzo/mux v1.9.2
+	github.com/lgcorzo/minio-go/v7 v7.0.91-lgcorzo.2
+	github.com/lgcorzo/mux v1.9.2-lgcorzo.1
 	github.com/mattn/go-colorable v0.1.14
 	github.com/mattn/go-isatty v0.0.20
 	github.com/rjeczalik/notify v0.9.3
