@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minio/pkg/v3/wildcard"
+	"github.com/lgcorzo/pkg/v3/wildcard"
 )
 
 func TestSubstitute(t *testing.T) {

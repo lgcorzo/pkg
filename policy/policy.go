@@ -27,8 +27,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/minio/minio-go/v7/pkg/set"
-	"github.com/minio/pkg/v3/wildcard"
+	"github.com/lgcorzo/minio-go/v7/pkg/set"
+	"github.com/lgcorzo/pkg/v3/wildcard"
 )
 
 // DefaultVersion - default policy version as per AWS S3 specification.

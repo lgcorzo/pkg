@@ -24,7 +24,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // Statement.hash once omitted NotResources, so dropDuplicateStatements collapsed

@@ -20,7 +20,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // acceptedResourceCorpus is every resource form the policy language accepts.

@@ -24,7 +24,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/go-openapi/swag/conv"
-	"github.com/minio/minio-go/v7/pkg/lifecycle"
+	"github.com/lgcorzo/minio-go/v7/pkg/lifecycle"
 )
 
 func TestOptionFilter(t *testing.T) {

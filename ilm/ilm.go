@@ -18,7 +18,7 @@
 package ilm
 
 import (
-	"github.com/minio/minio-go/v7/pkg/lifecycle"
+	"github.com/lgcorzo/minio-go/v7/pkg/lifecycle"
 )
 
 const defaultILMDateFormat string = "2006-01-02"
