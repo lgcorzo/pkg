@@ -20,7 +20,7 @@ package policy
 import (
 	"strings"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // BPStatement - policy statement.
@@ -64,7 +64,7 @@ func (statement BPStatement) IsAllowed(args BucketPolicyArgs) bool {
 			return false
 		}
 
-		return statement.Conditions.Evaluate(args.ConditionValues)
+		return evaluateConditions(statement.Effect, statement.Conditions, args.ConditionValues)
 	}
 
 	return statement.Effect.IsAllowed(check())

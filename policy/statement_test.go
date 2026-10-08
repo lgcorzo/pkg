@@ -23,7 +23,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 func TestStatementIsAllowed(t *testing.T) {
@@ -329,13 +329,13 @@ func TestStatementIsValid(t *testing.T) {
 		), false},
 		{NewStatement("",
 			Allow,
-			NewActionSet(CreateUserAdminAction, DeleteUserAdminAction),
+			NewActionSet(Action(CreateUserAdminAction), Action(DeleteUserAdminAction)),
 			nil,
 			condition.NewFunctions(func2, func3),
 		), true},
 		{NewStatement("",
 			Allow,
-			NewActionSet(CreateUserAdminAction, DeleteUserAdminAction),
+			NewActionSet(Action(CreateUserAdminAction), Action(DeleteUserAdminAction)),
 			nil,
 			condition.NewFunctions(),
 		), false},

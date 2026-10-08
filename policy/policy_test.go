@@ -27,8 +27,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minio/minio-go/v7/pkg/set"
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/minio-go/v7/pkg/set"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 func TestGetPoliciesFromClaims(t *testing.T) {
@@ -103,11 +103,11 @@ func TestAdminPolicyResource(t *testing.T) {
 	}
 
 	allowedActions := p.IsAllowedActions("", "", map[string][]string{})
-	if !allowedActions.Match(ListServiceAccountsAdminAction) {
+	if !allowedActions.Match(Action(ListServiceAccountsAdminAction)) {
 		t.Fatal("expected success for ListServiceAccounts, but failed to match")
 	}
 
-	if !allowedActions.Match(GetBucketQuotaAdminAction) {
+	if !allowedActions.Match(Action(GetBucketQuotaAdminAction)) {
 		t.Fatal("expected success for GetBucketQuota, but failed to match")
 	}
 }
@@ -1298,7 +1298,7 @@ func TestPolicyUnmarshalJSONAndValidate(t *testing.T) {
 			NewStatement(
 				"",
 				Allow,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
@@ -1354,14 +1354,14 @@ func TestPolicyUnmarshalJSONAndValidate(t *testing.T) {
 			NewStatement(
 				"",
 				Deny,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
 			NewStatement(
 				"",
 				Allow,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
@@ -1411,7 +1411,7 @@ func TestPolicyUnmarshalJSONAndValidate(t *testing.T) {
 			NewStatement(
 				"",
 				Deny,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
@@ -1554,7 +1554,7 @@ func TestMergePolicies(t *testing.T) {
 			NewStatement(
 				"",
 				Deny,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
@@ -1575,7 +1575,7 @@ func TestMergePolicies(t *testing.T) {
 			NewStatement(
 				"",
 				Deny,
-				NewActionSet(AllAdminActions),
+				NewActionSet(Action(AllAdminActions)),
 				ResourceSet{},
 				condition.NewFunctions(),
 			),
@@ -1636,7 +1636,7 @@ func TestMergePolicies(t *testing.T) {
 					NewStatement(
 						"",
 						Deny,
-						NewActionSet(AllAdminActions),
+						NewActionSet(Action(AllAdminActions)),
 						ResourceSet{},
 						condition.NewFunctions(),
 					),
@@ -1665,7 +1665,7 @@ func TestMergePolicies(t *testing.T) {
 					NewStatement(
 						"",
 						Deny,
-						NewActionSet(AllAdminActions),
+						NewActionSet(Action(AllAdminActions)),
 						ResourceSet{},
 						condition.NewFunctions(),
 					),
@@ -2101,7 +2101,7 @@ func TestPolicyParseS3TablesExamples(t *testing.T) {
     }
   ]
 }`,
-			expectedActions:   []Action{S3TablesPutTableBucketMaintenanceConfigurationAction},
+			expectedActions:   []Action{Action(S3TablesPutTableBucketMaintenanceConfigurationAction)},
 			expectedResources: []string{"arn:aws:s3tables:::bucket/*"},
 		},
 		{
@@ -2124,7 +2124,7 @@ func TestPolicyParseS3TablesExamples(t *testing.T) {
     }
   ]
 }`,
-			expectedActions:   []Action{S3TablesGetTableDataAction, S3TablesGetTableMetadataLocationAction},
+			expectedActions:   []Action{Action(S3TablesGetTableDataAction), Action(S3TablesGetTableMetadataLocationAction)},
 			expectedResources: []string{"arn:aws:s3tables:::bucket/amzn-s3-demo-table-bucket/table/*"},
 			expectedCondKeys:  []condition.KeyName{condition.S3TablesNamespace},
 		},
@@ -2147,10 +2147,10 @@ func TestPolicyParseS3TablesExamples(t *testing.T) {
   ]
 }`,
 			expectedActions: []Action{
-				S3TablesDeleteTableAction,
-				S3TablesUpdateTableMetadataLocationAction,
-				S3TablesPutTableDataAction,
-				S3TablesGetTableMetadataLocationAction,
+				Action(S3TablesDeleteTableAction),
+				Action(S3TablesUpdateTableMetadataLocationAction),
+				Action(S3TablesPutTableDataAction),
+				Action(S3TablesGetTableMetadataLocationAction),
 			},
 			expectedResources: []string{"arn:aws:s3tables:::bucket/amzn-s3-demo-bucket/table/tableUUID"},
 		},
@@ -2257,6 +2257,17 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 		]
 	}`
 
+	policy5JSON := `{
+		"Version": "2012-10-17",
+		"Statement": [
+			{
+				"Effect": "Allow",
+				"Action": ["s3tables:DeleteTableData"],
+				"Resource": ["arn:aws:s3tables:::bucket/del-warehouse/table/uuid-789"]
+			}
+		]
+	}`
+
 	testCases := []struct {
 		name           string
 		policyJSON     string
@@ -2268,22 +2279,22 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			name:       "GetTableData direct match",
 			policyJSON: policy1JSON,
 			args: Args{
-				Action:     S3TablesGetTableDataAction,
+				Action:     Action(S3TablesGetTableDataAction),
 				BucketName: "bucket/my-warehouse/table/table-uuid-123",
 			},
 			expectedResult: true,
 			description:    "S3 Tables action should match S3 Tables resource directly",
 		},
 		{
-			name:       "GetTableData implicit GetObject match with resource conversion",
+			name:       "GetTableData implicit GetObject match on the table resource",
 			policyJSON: policy1JSON,
 			args: Args{
 				Action:     GetObjectAction,
-				BucketName: "my-warehouse",
-				ObjectName: "table-uuid-123",
+				BucketName: "bucket",
+				ObjectName: "my-warehouse/table/table-uuid-123",
 			},
 			expectedResult: true,
-			description:    "GetObject (implicit from GetTableData) should match when resource is converted from S3 to S3Tables format",
+			description:    "GetObject (implicit from GetTableData) should match on the table resource the server presents",
 		},
 		{
 			name:       "GetTableData implicit GetObject with extra path",
@@ -2293,19 +2304,19 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 				BucketName: "my-warehouse",
 				ObjectName: "table-uuid-123/data/file.parquet",
 			},
-			expectedResult: true,
-			description:    "GetObject should match even with extra path segments (should be discarded in conversion)",
+			expectedResult: false,
+			description:    "a plain object path is not table data until the server presents it in tables form",
 		},
 		{
 			name:       "GetTableData implicit ListMultipartUploadParts match",
 			policyJSON: policy1JSON,
 			args: Args{
 				Action:     ListMultipartUploadPartsAction,
-				BucketName: "my-warehouse",
-				ObjectName: "table-uuid-123",
+				BucketName: "bucket",
+				ObjectName: "my-warehouse/table/table-uuid-123",
 			},
 			expectedResult: true,
-			description:    "ListMultipartUploadParts (implicit from GetTableData) should match with resource conversion",
+			description:    "ListMultipartUploadParts (implicit from GetTableData) should match on the table resource",
 		},
 		{
 			name:       "GetTableData wrong warehouse - should not match",
@@ -2333,7 +2344,7 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			name:       "PutTableData direct match",
 			policyJSON: policy2JSON,
 			args: Args{
-				Action:     S3TablesPutTableDataAction,
+				Action:     Action(S3TablesPutTableDataAction),
 				BucketName: "bucket/test-warehouse/table/uuid-456",
 			},
 			expectedResult: true,
@@ -2344,19 +2355,19 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy2JSON,
 			args: Args{
 				Action:     PutObjectAction,
-				BucketName: "test-warehouse",
-				ObjectName: "uuid-456",
+				BucketName: "bucket",
+				ObjectName: "test-warehouse/table/uuid-456",
 			},
 			expectedResult: true,
-			description:    "PutObject (implicit from PutTableData) should match with resource conversion",
+			description:    "PutObject (implicit from PutTableData) should match on the table resource",
 		},
 		{
 			name:       "PutTableData implicit AbortMultipartUpload match",
 			policyJSON: policy2JSON,
 			args: Args{
 				Action:     AbortMultipartUploadAction,
-				BucketName: "test-warehouse",
-				ObjectName: "uuid-456/upload",
+				BucketName: "bucket",
+				ObjectName: "test-warehouse/table/uuid-456",
 			},
 			expectedResult: true,
 			description:    "AbortMultipartUpload (implicit from PutTableData) should match",
@@ -2366,8 +2377,8 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy3JSON,
 			args: Args{
 				Action:     GetObjectAction,
-				BucketName: "wh",
-				ObjectName: "id",
+				BucketName: "bucket",
+				ObjectName: "wh/table/id",
 			},
 			expectedResult: true,
 			description:    "Should match with multiple S3 Tables actions in statement",
@@ -2377,11 +2388,65 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy3JSON,
 			args: Args{
 				Action:     PutObjectAction,
-				BucketName: "wh",
-				ObjectName: "id",
+				BucketName: "bucket",
+				ObjectName: "wh/table/id",
 			},
 			expectedResult: true,
 			description:    "Should match PutObject when both GetTableData and PutTableData are allowed",
+		},
+		{
+			name:       "DeleteTableData direct match",
+			policyJSON: policy5JSON,
+			args: Args{
+				Action:     Action(S3TablesDeleteTableDataAction),
+				BucketName: "bucket/del-warehouse/table/uuid-789",
+			},
+			expectedResult: true,
+			description:    "DeleteTableData action should match S3 Tables resource directly",
+		},
+		{
+			name:       "DeleteTableData implicit DeleteObject match",
+			policyJSON: policy5JSON,
+			args: Args{
+				Action:     DeleteObjectAction,
+				BucketName: "bucket",
+				ObjectName: "del-warehouse/table/uuid-789",
+			},
+			expectedResult: true,
+			description:    "DeleteObject (implicit from DeleteTableData) should match on the table resource",
+		},
+		{
+			name:       "DeleteTableData implicit DeleteObject with extra path",
+			policyJSON: policy5JSON,
+			args: Args{
+				Action:     DeleteObjectAction,
+				BucketName: "del-warehouse",
+				ObjectName: "uuid-789/data/file.parquet",
+			},
+			expectedResult: false,
+			description:    "a plain object path is not table data until the server presents it in tables form",
+		},
+		{
+			name:       "DeleteTableData wrong table uuid - should not match",
+			policyJSON: policy5JSON,
+			args: Args{
+				Action:     DeleteObjectAction,
+				BucketName: "del-warehouse",
+				ObjectName: "wrong-uuid",
+			},
+			expectedResult: false,
+			description:    "Should not match when table UUID doesn't match",
+		},
+		{
+			name:       "DeleteTableData does not grant PutObject",
+			policyJSON: policy5JSON,
+			args: Args{
+				Action:     PutObjectAction,
+				BucketName: "del-warehouse",
+				ObjectName: "uuid-789",
+			},
+			expectedResult: false,
+			description:    "PutObject is not implicit from DeleteTableData, should not match",
 		},
 		{
 			name:       "Non-implicit action should not match",
@@ -2399,19 +2464,19 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy4JSON,
 			args: Args{
 				Action:     GetObjectAction,
-				BucketName: "all-warehouse",
-				ObjectName: "all-uuid",
+				BucketName: "bucket",
+				ObjectName: "all-warehouse/table/all-uuid",
 			},
 			expectedResult: true,
-			description:    "s3tables:* should allow GetObject through implicit matching with resource conversion",
+			description:    "s3tables:* should allow GetObject through implicit matching on the table resource",
 		},
 		{
 			name:       "s3tables:* allows PutObject implicitly",
 			policyJSON: policy4JSON,
 			args: Args{
 				Action:     PutObjectAction,
-				BucketName: "all-warehouse",
-				ObjectName: "all-uuid",
+				BucketName: "bucket",
+				ObjectName: "all-warehouse/table/all-uuid",
 			},
 			expectedResult: true,
 			description:    "s3tables:* should allow PutObject through implicit matching",
@@ -2421,8 +2486,8 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy4JSON,
 			args: Args{
 				Action:     ListMultipartUploadPartsAction,
-				BucketName: "all-warehouse",
-				ObjectName: "all-uuid",
+				BucketName: "bucket",
+				ObjectName: "all-warehouse/table/all-uuid",
 			},
 			expectedResult: true,
 			description:    "s3tables:* should allow ListMultipartUploadParts through implicit matching",
@@ -2432,11 +2497,22 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			policyJSON: policy4JSON,
 			args: Args{
 				Action:     AbortMultipartUploadAction,
-				BucketName: "all-warehouse",
-				ObjectName: "all-uuid",
+				BucketName: "bucket",
+				ObjectName: "all-warehouse/table/all-uuid",
 			},
 			expectedResult: true,
 			description:    "s3tables:* should allow AbortMultipartUpload through implicit matching",
+		},
+		{
+			name:       "s3tables:* allows DeleteObject implicitly",
+			policyJSON: policy4JSON,
+			args: Args{
+				Action:     DeleteObjectAction,
+				BucketName: "bucket",
+				ObjectName: "all-warehouse/table/all-uuid",
+			},
+			expectedResult: true,
+			description:    "s3tables:* should allow DeleteObject through implicit matching",
 		},
 		{
 			name:       "s3tables:* with extra path segments",
@@ -2444,10 +2520,10 @@ func TestS3TablesActionsWithImplicitMatching(t *testing.T) {
 			args: Args{
 				Action:     GetObjectAction,
 				BucketName: "all-warehouse",
-				ObjectName: "all-uuid/extra/path/data.parquet",
+				ObjectName: "all-uuid/data/file.parquet",
 			},
-			expectedResult: true,
-			description:    "s3tables:* should match with extra path segments discarded",
+			expectedResult: false,
+			description:    "a plain object path is not table data until the server presents it in tables form",
 		},
 		{
 			name:       "s3tables:* wrong warehouse should not match",
@@ -2736,13 +2812,13 @@ func TestAdminActionResourceScoping(t *testing.T) {
 
 	// Matching bucket must be allowed.
 	allowed := p.IsAllowedActions("mybucket", "", map[string][]string{})
-	if !allowed.Match(GetBucketQuotaAdminAction) {
+	if !allowed.Match(Action(GetBucketQuotaAdminAction)) {
 		t.Fatal("expected GetBucketQuota allowed for mybucket")
 	}
 
 	// Different bucket must be denied.
 	allowed = p.IsAllowedActions("otherbucket", "", map[string][]string{})
-	if allowed.Match(GetBucketQuotaAdminAction) {
+	if allowed.Match(Action(GetBucketQuotaAdminAction)) {
 		t.Fatal("expected GetBucketQuota denied for otherbucket")
 	}
 
@@ -2761,7 +2837,7 @@ func TestAdminActionResourceScoping(t *testing.T) {
 		t.Fatal(err)
 	}
 	allowed = p.IsAllowedActions("", "", map[string][]string{})
-	if !allowed.Match(ServerInfoAdminAction) {
+	if !allowed.Match(Action(ServerInfoAdminAction)) {
 		t.Fatal("expected ServerInfo allowed without resource")
 	}
 
@@ -2780,10 +2856,10 @@ func TestAdminActionResourceScoping(t *testing.T) {
 		t.Fatal(err)
 	}
 	allowed = p.IsAllowedActions("", "", map[string][]string{})
-	if !allowed.Match(ServerInfoAdminAction) {
+	if !allowed.Match(Action(ServerInfoAdminAction)) {
 		t.Fatal("expected ServerInfo allowed with admin:* and no resource")
 	}
-	if !allowed.Match(GetBucketQuotaAdminAction) {
+	if !allowed.Match(Action(GetBucketQuotaAdminAction)) {
 		t.Fatal("expected GetBucketQuota allowed with admin:* and no resource constraint")
 	}
 }
@@ -2793,6 +2869,8 @@ func TestAdminActionHasResource(t *testing.T) {
 	bucketScoped := []AdminAction{
 		SetBucketQuotaAdminAction,
 		GetBucketQuotaAdminAction,
+		SetBucketCompressionAdminAction,
+		GetBucketCompressionAdminAction,
 		SetBucketTargetAction,
 		GetBucketTargetAction,
 		ReplicationDiff,

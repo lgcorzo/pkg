@@ -19,6 +19,7 @@ package condition
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -27,24 +28,72 @@ import (
 // for more information about available condition keys.
 type KeyName string
 
+// adminKeyPrefix is the service prefix of the keys that describe an admin API
+// request, such as admin:PolicyName. The server sets their values itself, so a
+// policy may use them on admin actions only, and no request header supplies
+// them.
+const adminKeyPrefix = "admin"
+
 // Prefixes to trim from key names.
 var toTrim = map[string]bool{
-	"aws":      true,
-	"jwt":      true,
-	"ldap":     true,
-	"sts":      true,
-	"svc":      true,
-	"s3":       true,
-	"s3tables": true,
+	"aws":          true,
+	"jwt":          true,
+	"ldap":         true,
+	"sts":          true,
+	"svc":          true,
+	"s3":           true,
+	"s3tables":     true,
+	"memory":       true,
+	adminKeyPrefix: true,
 }
 
-// Name - returns key name which is stripped value of prefixes "aws:", "s3:", "jwt:" and "ldap:"
+// untrimmedKeys read the request value named by their whole key, prefix
+// included, because trimming would collide with a key that carries a
+// different value. Within an STS call aws:SourceIdentity is the calling
+// session's source identity and sts:SourceIdentity the one the new session
+// will carry.
+var untrimmedKeys = map[KeyName]bool{
+	STSSourceIdentity: true,
+}
+
+// Name - returns the key name with its service prefix stripped, so a key reads
+// the request value of the same name. The prefixes that are stripped are the
+// keys of toTrim; a service missing from there keeps its whole name and reads a
+// value nothing populates. A key in untrimmedKeys keeps its whole name too.
 func (key KeyName) Name() string {
 	idx := strings.IndexByte(string(key), ':')
-	if idx == -1 || !toTrim[string(key[:idx])] {
+	if idx == -1 || !toTrim[string(key[:idx])] || untrimmedKeys[key] {
 		return string(key)
 	}
 	return string(key[idx+1:])
+}
+
+// variableKeys are the keys that take a /<variable> suffix naming the tag they
+// test, as in s3:ExistingObjectTag/<tag>. Every other key names one value.
+var variableKeys = map[KeyName]bool{
+	ExistingObjectTag:    true,
+	RequestObjectTag:     true,
+	S3TablesWarehouseTag: true,
+	S3TablesTableTag:     true,
+}
+
+func variableKeyNames() []string {
+	names := make([]string, 0, len(variableKeys))
+	for name := range variableKeys {
+		names = append(names, string(name))
+	}
+	sort.Strings(names)
+	return names
+}
+
+// TakesVariable reports whether key may carry a /<variable> suffix.
+func (key KeyName) TakesVariable() bool {
+	return variableKeys[key]
+}
+
+// IsAdmin reports whether key describes an admin API request.
+func (key KeyName) IsAdmin() bool {
+	return strings.HasPrefix(string(key), adminKeyPrefix+":")
 }
 
 // VarName - returns variable key name, such as "${aws:username}"
@@ -74,8 +123,17 @@ const (
 	// S3TablesViewName filters access by the S3 Tables view name within a namespace.
 	S3TablesViewName KeyName = "s3tables:viewName"
 
+	// S3TablesFunctionName filters access by the S3 Tables function name within a namespace.
+	S3TablesFunctionName KeyName = "s3tables:functionName"
+
 	// S3TablesRegisterLocation filters access by the metadata location for table/view registration.
 	S3TablesRegisterLocation KeyName = "s3tables:registerLocation"
+
+	// S3TablesWarehouseTag filters access by tags on the table warehouse.
+	S3TablesWarehouseTag KeyName = "s3tables:WarehouseTag"
+
+	// S3TablesTableTag filters access by tags on the table.
+	S3TablesTableTag KeyName = "s3tables:TableTag"
 
 	// S3XAmzCopySource - key representing x-amz-copy-source HTTP header applicable to PutObject API only.
 	S3XAmzCopySource KeyName = "s3:x-amz-copy-source"
@@ -103,6 +161,14 @@ const (
 	// HTTP header for S3 API calls
 	S3XAmzServerSideEncryptionAwsKmsKeyID KeyName = "s3:x-amz-server-side-encryption-aws-kms-key-id"
 
+	// S3XAmzObjectIfMatch - key representing the x-amz-object-if-match HTTP header used by the
+	// object annotation APIs (PutObjectAnnotation/DeleteObjectAnnotation) for optimistic concurrency.
+	S3XAmzObjectIfMatch KeyName = "s3:x-amz-object-if-match"
+
+	// S3XAmzAnnotationDirective - key representing the x-amz-annotation-directive HTTP header
+	// of CopyObject, which controls whether annotations are copied (COPY) or excluded (EXCLUDE).
+	S3XAmzAnnotationDirective KeyName = "s3:x-amz-annotation-directive"
+
 	// S3LocationConstraint - key representing LocationConstraint XML tag of CreateBucket API only.
 	S3LocationConstraint KeyName = "s3:LocationConstraint"
 
@@ -111,6 +177,22 @@ const (
 
 	// S3Delimiter - key representing delimiter query parameter of ListBucket API only.
 	S3Delimiter KeyName = "s3:delimiter"
+
+	// MemoryPrefix - key representing the prefix query parameter of the AIStor
+	// Memory list and search APIs. It scopes enumeration within a cortex, which
+	// a resource ARN cannot express: a list names a query, not a record, so
+	// putting the prefix in the resource path would make one ARN mean a single
+	// record under a read action and a set of siblings under a list action.
+	//
+	// memory:Search takes it for the same reason and depends on it more, since
+	// search returns object content: without the key its grant has only two
+	// states, none or the whole cortex.
+	MemoryPrefix KeyName = "memory:prefix"
+
+	// MemoryMaxKeys - key representing the limit query parameter of the AIStor
+	// Memory list APIs only. It caps a single page, bounding what one request
+	// can enumerate.
+	MemoryMaxKeys KeyName = "memory:max-keys"
 
 	// S3VersionID - Enables you to limit the permission for the
 	// s3:PutObjectVersionTagging action to a specific object version.
@@ -166,6 +248,10 @@ const (
 
 	// AWSGroups - groups for any authenticating Access Key.
 	AWSGroups KeyName = "aws:groups"
+
+	// AWSSourceIdentity - the source identity of the session that signed the
+	// request, set when the session was assumed and fixed for its lifetime.
+	AWSSourceIdentity KeyName = "aws:SourceIdentity"
 
 	// S3SignatureVersion - identifies the version of AWS Signature that you want to support for authenticated requests.
 	S3SignatureVersion KeyName = "s3:signatureversion"
@@ -235,8 +321,18 @@ const (
 	// STSDurationSeconds - Duration seconds condition for STS policy
 	STSDurationSeconds KeyName = "sts:DurationSeconds"
 
+	// STSSourceIdentity - the source identity the session being assumed will
+	// carry: the one requested, or the one inherited from the caller's session.
+	STSSourceIdentity KeyName = "sts:SourceIdentity"
+
 	// SVCDurationSeconds - Duration seconds condition for Admin policy
 	SVCDurationSeconds KeyName = "svc:DurationSeconds"
+
+	// AdminPolicyName - the name of the policy a policy admin action
+	// (admin:CreatePolicy, admin:DeletePolicy, admin:GetPolicy) works on, so a
+	// statement can grant those actions on a set of policies, for example
+	// StringLike {"admin:PolicyName": ["app-*"]}.
+	AdminPolicyName KeyName = "admin:PolicyName"
 )
 
 // JWTKeys - Supported JWT keys, non-exhaustive list please
@@ -277,11 +373,15 @@ var AllSupportedKeys = []KeyName{
 	S3XAmzMetadataDirective,
 	S3XAmzStorageClass,
 	S3XAmzServerSideEncryptionAwsKmsKeyID,
+	S3XAmzObjectIfMatch,
+	S3XAmzAnnotationDirective,
 	S3XAmzContentSha256,
 	S3LocationConstraint,
 	S3Prefix,
 	S3Delimiter,
 	S3MaxKeys,
+	MemoryPrefix,
+	MemoryMaxKeys,
 	S3VersionID,
 	S3ObjectLockRemainingRetentionDays,
 	S3ObjectLockMode,
@@ -292,7 +392,10 @@ var AllSupportedKeys = []KeyName{
 	S3TablesNamespace,
 	S3TablesTableName,
 	S3TablesViewName,
+	S3TablesFunctionName,
 	S3TablesRegisterLocation,
+	S3TablesWarehouseTag,
+	S3TablesTableTag,
 	AWSReferer,
 	AWSSourceIP,
 	AWSUserAgent,
@@ -303,6 +406,7 @@ var AllSupportedKeys = []KeyName{
 	AWSUserID,
 	AWSUsername,
 	AWSGroups,
+	AWSSourceIdentity,
 	LDAPUser,
 	LDAPUsername,
 	LDAPGroups,
@@ -332,7 +436,9 @@ var AllSupportedKeys = []KeyName{
 	JWTScope,
 	JWTClientID,
 	STSDurationSeconds,
+	STSSourceIdentity,
 	SVCDurationSeconds,
+	AdminPolicyName,
 }
 
 // CommonKeys - is list of all common condition keys.
@@ -353,6 +459,7 @@ var CommonKeys = append([]KeyName{
 	AWSUserID,
 	AWSUsername,
 	AWSGroups,
+	AWSSourceIdentity,
 	LDAPUser,
 	LDAPUsername,
 	LDAPGroups,
@@ -368,8 +475,9 @@ func init() {
 	}
 }
 
-// AllSupportedAdminKeys - is list of all admin supported keys.
-var AllSupportedAdminKeys = append([]KeyName{
+// CommonAdminKeys are the condition keys every admin action takes: they
+// describe the request and its principal, not what the action works on.
+var CommonAdminKeys = append([]KeyName{
 	AWSReferer,
 	AWSSourceIP,
 	AWSUserAgent,
@@ -380,18 +488,32 @@ var AllSupportedAdminKeys = append([]KeyName{
 	AWSUserID,
 	AWSUsername,
 	AWSGroups,
+	AWSSourceIdentity,
 	LDAPUser,
 	LDAPUsername,
 	LDAPGroups,
 	SVCDurationSeconds,
-	// Add new supported condition keys.
+	// Add new condition keys that describe any admin request.
 }, JWTKeys...)
+
+// AdminActionKeys are the condition keys that describe what one kind of admin
+// action works on, such as the policy it names. The policy package lists which
+// actions take each of them.
+var AdminActionKeys = []KeyName{
+	AdminPolicyName,
+	// Add new condition keys that only some admin actions carry.
+}
+
+// AllSupportedAdminKeys - is list of all admin supported keys.
+var AllSupportedAdminKeys = append(append([]KeyName{}, CommonAdminKeys...), AdminActionKeys...)
 
 // AllSupportedSTSKeys is the all supported conditions for STS policies
 var AllSupportedSTSKeys = []KeyName{
 	AWSPrincipalType,
 	AWSSecureTransport,
 	STSDurationSeconds,
+	STSSourceIdentity,
+	AWSSourceIdentity,
 	LDAPUser,
 	AWSUserID,
 	AWSGroups,

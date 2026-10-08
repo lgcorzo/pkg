@@ -23,7 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 	"github.com/zeebo/xxh3"
 )
 
@@ -36,6 +36,13 @@ type Statement struct {
 	Resources    ResourceSet         `json:"Resource,omitempty"`
 	NotResources ResourceSet         `json:"NotResource,omitempty"`
 	Conditions   condition.Functions `json:"Condition,omitempty"`
+
+	// Namespace classification, filled in by Policy.updateActionIndex and
+	// cached because recomputing it per evaluation is expensive. Zero means
+	// "not classified yet". Replacing Actions on a statement already held by a
+	// parsed policy leaves this stale, and the namespace decides whether
+	// Resources are matched at all, so call Policy.Reindex after such a change.
+	class statementClass
 }
 
 // smallBufPool should always return a non-nil *bytes.Buffer
@@ -48,46 +55,52 @@ func (statement Statement) IsAllowed(args Args) bool {
 	return statement.IsAllowedPtr(&args)
 }
 
+// buildRequestResource is called once per request and its result passed down,
+// because every statement of every policy matches against the same string and
+// rebuilding it per statement dominated allocation on the authorization path.
+func buildRequestResource(args *Args) string {
+	buf := smallBufPool.Get().(*bytes.Buffer)
+	defer smallBufPool.Put(buf)
+	buf.Reset()
+	buf.WriteString(args.BucketName)
+	if args.ObjectName != "" {
+		if !strings.HasPrefix(args.ObjectName, "/") {
+			buf.WriteByte('/')
+		}
+		buf.WriteString(args.ObjectName)
+	} else {
+		buf.WriteByte('/')
+	}
+	return buf.String()
+}
+
 // IsAllowedPtr - checks given policy args is allowed to continue the Rest API.
 func (statement Statement) IsAllowedPtr(args *Args) bool {
+	return statement.isAllowedFor(args, buildRequestResource(args))
+}
+
+// isAllowedFor is IsAllowedPtr with the request resource string supplied by the
+// caller.
+func (statement Statement) isAllowedFor(args *Args, resource string) bool {
 	check := func() bool {
 		if (!statement.Actions.Match(args.Action) && !statement.Actions.IsEmpty()) ||
 			statement.NotActions.Match(args.Action) {
 			return false
 		}
 
-		resource := smallBufPool.Get().(*bytes.Buffer)
-		defer smallBufPool.Put(resource)
-		resource.Reset()
-		resource.WriteString(args.BucketName)
-		if args.ObjectName != "" {
-			if !strings.HasPrefix(args.ObjectName, "/") {
-				resource.WriteByte('/')
-			}
-			resource.WriteString(args.ObjectName)
-		} else {
-			resource.WriteByte('/')
-		}
+		class := statement.classify()
 
-		if statement.isTable() && !TableAction(args.Action).IsValid() {
-			// When a tables policy statement (for example
-			//   "Action":   ["s3tables:GetTableData"],
-			//   "Resource": ["arn:aws:s3tables:::bucket/wh/table/uuid"]
-			// ) is evaluated for a plain S3 data-path action such as
-			// GetObject on (BucketName "wh", ObjectName "uuid[/...]"), the
-			// action match succeeds via implicitActions. However, the
-			// resource string built from Args ("wh/uuid[/...]") does not
-			// look like a tables ARN suffix ("bucket/wh/table/uuid"), so a
-			// direct string match against the S3 Tables resource
-			// would fail. In this specific case we know:
-			//   - the statement is a tables statement,
-			//   - the incoming action is covered implicitly (not a table API),
-			//   - and the stored policy resource is S3 Tables style.
-			// To allow GetObject/ListMultipartUploadParts/etc. when
-			// s3tables:GetTableData (or similar) is granted, normalize the
-			// S3 data-path resource into the canonical tables form before
-			// running the usual resource match.
-			if !isTableResourceString(resource.String()) {
+		if class.has(classTable) && !TableAction(args.Action).IsValid() && !isTableResourceString(resource) {
+			// A tables action implies the S3 data actions Iceberg uses on table
+			// files (s3tables:GetTableData implies s3:GetObject). The server
+			// presents a warehouse object in tables form, so an implied Allow
+			// never reaches an ordinary bucket, while an S3 action the statement
+			// names itself matches the request as it is. A Deny matches the
+			// object's tables form, so denying a table still denies its files.
+			switch {
+			case statement.Effect == Allow && !statement.Actions.matchesNamed(args.Action):
+				return false
+			case statement.Effect == Deny:
 				if args.BucketName == "" || args.ObjectName == "" {
 					return false
 				}
@@ -95,26 +108,22 @@ func (statement Statement) IsAllowedPtr(args *Args) bool {
 				if idx := strings.IndexByte(objectName, '/'); idx >= 0 {
 					objectName = objectName[:idx]
 				}
-				resource.Reset()
-				resource.WriteString("bucket/")
-				resource.WriteString(args.BucketName)
-				resource.WriteString("/table/")
-				resource.WriteString(objectName)
-				if !isTableResourceString(resource.String()) {
+				resource = "bucket/" + args.BucketName + "/table/" + objectName
+				if !isTableResourceString(resource) {
 					return false
 				}
 			}
 		}
 
-		if statement.isKMS() {
-			if resource.Len() == 1 && resource.String() == "/" || len(statement.Resources) == 0 {
+		if class.has(classKMS) {
+			if resource == "/" || len(statement.Resources) == 0 {
 				// In previous MinIO versions, KMS statements ignored Resources, so if len(statement.Resources) == 0,
 				// allow backward compatibility by not trying to Match.
 
 				// When resource is "/", this allows evaluating KMS statements while explicitly excluding Resource,
 				// by passing Args with empty BucketName and ObjectName. This is useful when doing a
 				// two-phase authorization of a request.
-				return statement.Conditions.Evaluate(args.ConditionValues)
+				return evaluateConditions(statement.Effect, statement.Conditions, args.ConditionValues)
 			}
 		}
 
@@ -122,20 +131,31 @@ func (statement Statement) IsAllowedPtr(args *Args) bool {
 		// skip resource matching entirely. For the small set of
 		// bucket-scoped admin actions (e.g. SetBucketQuota),
 		// resource matching is enforced when Resources are present.
-		ignoreResourceMatch := statement.isSTS() || (statement.isAdmin() && !statement.hasAdminResource())
+		ignoreResourceMatch := class.has(classSTS) || (class.has(classAdmin) && !class.has(classAdminResource))
 
-		if !ignoreResourceMatch && len(statement.Resources) > 0 && !statement.Resources.Match(resource.String(), args.ConditionValues) {
+		if !ignoreResourceMatch && len(statement.Resources) > 0 && !statement.Resources.Match(resource, args.ConditionValues) {
 			return false
 		}
 
-		if !ignoreResourceMatch && len(statement.NotResources) > 0 && statement.NotResources.Match(resource.String(), args.ConditionValues) {
+		if !ignoreResourceMatch && len(statement.NotResources) > 0 && statement.NotResources.Match(resource, args.ConditionValues) {
 			return false
 		}
 
-		return statement.Conditions.Evaluate(args.ConditionValues)
+		return evaluateConditions(statement.Effect, statement.Conditions, args.ConditionValues)
 	}
 
 	return statement.Effect.IsAllowed(check())
+}
+
+// evaluateConditions evaluates a statement's conditions. A key carrying a
+// suffix it does not take, which only a policy stored before validation refused
+// it can hold, cannot be checked: the statement fails closed, an Allow never
+// granting and a Deny always applying.
+func evaluateConditions(effect Effect, conditions condition.Functions, values map[string][]string) bool {
+	if !conditions.VariablesAllowed() {
+		return effect == Deny
+	}
+	return conditions.Evaluate(values)
 }
 
 // validateActionTypes rejects statements that mix actions from
@@ -146,7 +166,7 @@ func (statement Statement) validateActionTypes() error {
 	if len(actions) == 0 {
 		actions = statement.NotActions
 	}
-	var hasS3, hasAdmin, hasSTS, hasKMS, hasTable, hasVectors bool
+	var hasS3, hasAdmin, hasSTS, hasKMS, hasTable, hasVectors, hasMemory, hasFiles bool
 	for action := range actions {
 		switch {
 		case AdminAction(action).IsValid():
@@ -159,12 +179,16 @@ func (statement Statement) validateActionTypes() error {
 			hasTable = true
 		case VectorsAction(action).IsValid():
 			hasVectors = true
+		case MemoryAction(action).IsValid():
+			hasMemory = true
+		case FilesAction(action).IsValid():
+			hasFiles = true
 		default:
 			hasS3 = true
 		}
 	}
 	count := 0
-	for _, b := range []bool{hasS3, hasAdmin, hasSTS, hasKMS, hasTable, hasVectors} {
+	for _, b := range []bool{hasS3, hasAdmin, hasSTS, hasKMS, hasTable, hasVectors, hasMemory, hasFiles} {
 		if b {
 			count++
 		}
@@ -173,6 +197,60 @@ func (statement Statement) validateActionTypes() error {
 		return Errorf("mixing action types in the same statement is not allowed")
 	}
 	return nil
+}
+
+// statementClass records which action namespaces a statement's actions belong
+// to. Statements are validated to carry actions from a single namespace, but
+// this is a bit set so that a policy predating that rule classifies exactly as
+// the individual predicates did.
+type statementClass uint8
+
+const (
+	classAdmin statementClass = 1 << iota
+	classSTS
+	classKMS
+	classTable
+	// classAdminResource marks an admin action that is scoped to a bucket.
+	classAdminResource
+	// classKnown distinguishes a computed classification from the zero value.
+	// A plain S3 statement belongs to none of the namespaces above, so without
+	// it "no namespace" and "not computed" would be the same value.
+	classKnown
+)
+
+func (c statementClass) has(f statementClass) bool { return c&f != 0 }
+
+// classify reports the statement's namespaces, using the value cached at parse
+// time when there is one and deriving it on the spot otherwise — slower, never
+// wrong.
+func (statement Statement) classify() statementClass {
+	if statement.class != 0 {
+		return statement.class
+	}
+	return statement.computeClass()
+}
+
+// computeClass walks the action set once.
+func (statement Statement) computeClass() statementClass {
+	c := classKnown
+	for action := range statement.Actions {
+		if AdminAction(action).IsValid() {
+			c |= classAdmin
+		}
+		if AdminAction(action).HasResource() {
+			c |= classAdminResource
+		}
+		if STSAction(action).IsValid() {
+			c |= classSTS
+		}
+		if KMSAction(action).IsValid() {
+			c |= classKMS
+		}
+		if TableAction(action).IsValid() {
+			c |= classTable
+		}
+	}
+	return c
 }
 
 func (statement Statement) isAdmin() bool {
@@ -225,6 +303,24 @@ func (statement Statement) isTable() bool {
 func (statement Statement) isVectors() bool {
 	for action := range statement.Actions {
 		if VectorsAction(action).IsValid() {
+			return true
+		}
+	}
+	return false
+}
+
+func (statement Statement) isMemory() bool {
+	for action := range statement.Actions {
+		if MemoryAction(action).IsValid() {
+			return true
+		}
+	}
+	return false
+}
+
+func (statement Statement) isFiles() bool {
+	for action := range statement.Actions {
+		if FilesAction(action).IsValid() {
 			return true
 		}
 	}
@@ -360,6 +456,71 @@ func (statement Statement) isValid() error {
 		return nil
 	}
 
+	if statement.isMemory() {
+		if err := statement.Actions.ValidateMemory(); err != nil {
+			return err
+		}
+		for action := range statement.Actions {
+			keys := statement.Conditions.Keys()
+			keyDiff := keys.Difference(MemoryActionConditionKeyMap[action])
+			if !keyDiff.IsEmpty() {
+				return Errorf("unsupported condition keys '%v' used for action '%v'", keyDiff, action)
+			}
+		}
+
+		if len(statement.Resources) == 0 && len(statement.NotResources) == 0 {
+			return Errorf("Resource must not be empty")
+		}
+
+		if len(statement.Resources) > 0 && len(statement.NotResources) > 0 {
+			return Errorf("Resource and NotResource cannot be specified in the same statement")
+		}
+
+		if err := statement.Resources.ValidateMemory(); err != nil {
+			return err
+		}
+
+		if err := statement.NotResources.ValidateMemory(); err != nil {
+			return err
+		}
+
+		for action := range statement.Actions {
+			if len(statement.Resources) > 0 && !statement.Resources.ObjectResourceExists() && !statement.Resources.BucketResourceExists() {
+				return Errorf("unsupported Resource found %v for action %v", statement.Resources, action)
+			}
+			if len(statement.NotResources) > 0 && !statement.NotResources.ObjectResourceExists() && !statement.NotResources.BucketResourceExists() {
+				return Errorf("unsupported NotResource found %v for action %v", statement.NotResources, action)
+			}
+		}
+
+		return nil
+	}
+
+	if statement.isFiles() {
+		if err := statement.Actions.ValidateFiles(); err != nil {
+			return err
+		}
+		for action := range statement.Actions {
+			keys := statement.Conditions.Keys()
+			keyDiff := keys.Difference(FilesActionConditionKeyMap[action])
+			if !keyDiff.IsEmpty() {
+				return Errorf("unsupported condition keys '%v' used for action '%v'", keyDiff, action)
+			}
+		}
+
+		// Files actions name no resource yet: an export is addressed by the
+		// request, not by an ARN in the policy. Refuse a Resource rather than
+		// ignore it, because an ignored Resource on an Allow would read as a
+		// grant scoped to one export while granting every export. Refusing now
+		// also leaves export-scoped ARNs free to be added later without changing
+		// what an existing policy means.
+		if len(statement.Resources) > 0 || len(statement.NotResources) > 0 {
+			return Errorf("s3files actions do not take a Resource or NotResource")
+		}
+
+		return nil
+	}
+
 	if !statement.SID.IsValid() {
 		return Errorf("invalid SID %v", statement.SID)
 	}
@@ -421,6 +582,21 @@ func (statement Statement) isValidStrict() error {
 	}
 
 	if err := statement.validateActionTypes(); err != nil {
+		return err
+	}
+
+	if err := statement.Conditions.CheckVariables(); err != nil {
+		return Errorf("%w", err)
+	}
+
+	// Applies to every action type: a bare ARN prefix names no resource, so a
+	// statement carrying one is inert — an Allow grants nothing and a Deny
+	// never fires. Existing policies keep loading through isValid; a new one
+	// must not be written.
+	if err := statement.Resources.ValidateStrict(); err != nil {
+		return err
+	}
+	if err := statement.NotResources.ValidateStrict(); err != nil {
 		return err
 	}
 
@@ -499,7 +675,8 @@ func (statement Statement) Equals(st Statement) bool {
 	return true
 }
 
-// Clone clones Statement structure
+// Clone clones Statement structure. The clone carries no cached namespace
+// classification.
 func (statement Statement) Clone() Statement {
 	return Statement{
 		SID:          statement.SID,
@@ -574,6 +751,11 @@ func (statement Statement) hash(seed uint64) [16]byte {
 	xorInt(&h, len(statement.Resources), seed+5)
 	for res := range statement.Resources {
 		xorTo(&h, xxh3.HashString128Seed(res.Pattern+res.Type.String(), seed+6))
+	}
+
+	xorInt(&h, len(statement.NotResources), seed+9)
+	for res := range statement.NotResources {
+		xorTo(&h, xxh3.HashString128Seed(res.Pattern+res.Type.String(), seed+10))
 	}
 
 	xorInt(&h, len(statement.Conditions), seed+7)
