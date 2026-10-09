@@ -23,9 +23,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/minio/minio-go/v7/pkg/s3utils"
-	"github.com/minio/minio-go/v7/pkg/set"
-	"github.com/minio/pkg/v3/wildcard"
+	"github.com/lgcorzo/minio-go/v7/pkg/s3utils"
+	"github.com/lgcorzo/minio-go/v7/pkg/set"
+	"github.com/lgcorzo/pkg/v3/wildcard"
 )
 
 // substitute expands policy variables in a condition value that is compared as

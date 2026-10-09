@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // A policy admin can be limited to a set of policies by name.

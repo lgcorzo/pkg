@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // TestS3TablesImpliedActionsReachTableDataOnly verifies the S3 data actions a

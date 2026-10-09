@@ -18,7 +18,7 @@
 package policy
 
 import (
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // FilesAction - AIStor Files management policy action. AIStor Files is an

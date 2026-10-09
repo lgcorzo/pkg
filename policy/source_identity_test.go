@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // TestSourceIdentityConditions verifies that policies can grant S3, admin and

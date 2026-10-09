@@ -18,7 +18,7 @@
 package policy
 
 import (
-	"github.com/minio/pkg/v3/policy/condition"
+	"github.com/lgcorzo/pkg/v3/policy/condition"
 )
 
 // VectorsAction - S3 Vectors policy action.
