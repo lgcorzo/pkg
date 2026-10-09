@@ -23,8 +23,5 @@ jobs:
         with:
           go-version: '1.26.x'
           check-latest: true
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.6
-          args: --build-tags kqueue --timeout=10m --config=./.golangci.yml
+      - name: Run lint
+        run: make lint
